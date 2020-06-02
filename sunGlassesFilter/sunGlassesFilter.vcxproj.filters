@@ -21,5 +21,11 @@
     <ClCompile Include="D:\opencv_learn\opencv_1\week10-cpp\face_detection_opencv_dnn.cpp">
       <Filter>Resource Files</Filter>
     </ClCompile>
+    <ClCompile Include="blending_test.cpp">
+      <Filter>Resource Files</Filter>
+    </ClCompile>
+    <ClCompile Include="roiTest.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>
