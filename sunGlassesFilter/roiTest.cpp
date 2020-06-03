@@ -7,6 +7,8 @@
 #include <vector>
 #include <stdlib.h>
 
+#define BLUR 15 //must be odd number
+
 using namespace cv;
 using namespace std;
 
@@ -45,8 +47,11 @@ int main()
     //calculate sunglasses resize
     int newWidth = point2.x - point1.x;
     int newHeight = (newWidth * foreground.rows)/foreground.cols;
+    //preblur foreground and alpha to help resize look less jaggy
+    GaussianBlur(foreground, foreground, Size(BLUR, BLUR), 0, 0);
+    GaussianBlur(alpha, alpha, Size(BLUR, BLUR), 0, 0);
     //resize foreground and alpha to bounding rectangle
-    resize(foreground, foreground, Size(newWidth, newHeight), INTER_CUBIC);
+    resize(foreground, foreground, Size(newWidth, newHeight), INTER_AREA);
     resize(alpha, alpha, Size(newWidth, newHeight), INTER_CUBIC);
     //for testing, draw rectangle
     drawRect(background, point1, point2, true);
@@ -54,6 +59,7 @@ int main()
     foreground.convertTo(foreground, CV_32FC3);
     background.convertTo(background, CV_32FC3);
     alpha.convertTo(alpha, CV_32FC3, 1.0 / 255);
+
     Mat outImage = Mat::zeros(foreground.size(), foreground.type());
     //prepare region of interest
     Rect roi = Rect(point1.x, point1.y + (point2.y - point1.y) / 3, newWidth, newHeight);
