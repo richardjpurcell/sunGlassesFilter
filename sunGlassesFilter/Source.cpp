@@ -1,3 +1,20 @@
+/*
+ * File:    sunGlassesFilter.c
+ * Author:  Richard Purcell
+ * Date:    2020-06-23
+ * Version: 1.0
+ * Purpose: an instagram type filter that adds sunglasses to 
+ *          a face present in a webcam feed
+ * Notes:   Completed for Computer Vision 1, project 2.
+ *          DNN code is taken from material provided with course.
+ *          This is a skeleton program that has preset input.
+ *          Four preset images are required:
+ *              sunglasses_foreground.jpg
+ *              sunglasses_alpha.jpg
+ *              sunglasses_lens_alpha.jpg
+ *              clouds.jpg
+ */
+
 #include <iostream>
 #include <string>
 #include <vector>
@@ -21,8 +38,8 @@ const size_t inHeight = 300;
 const double inScaleFactor = 1.0;
 const float confidenceThreshold = 0.5;
 const cv::Scalar meanVal(104.0, 177.0, 123.0);
-Mat sunglassesRGB = imread("sunglasses_foreground.jpg");
-Mat sunglassesA = imread("sunglasses_alpha.jpg");
+Mat sunglassesRGB, sunglassesA, lensA, reflectionRGB;
+
 
 #define CAFFE
 
@@ -34,14 +51,26 @@ const std::string tensorflowWeightFile = "./data/models/opencv_face_detector_uin
 
 void detectFaceOpenCVDNN(Net net, Mat& frameOpenCVDNN);
 
+/*
+* Name:        alphaBlend()
+* Purpose:     blend two images using an alpha channel image
+* Arguments:   foreground, background, alpha, outImage
+* Outputs:     none
+* Modifies:    background and outImage
+* Returns:     none
+* Assumptions: none
+* Bugs:        ?
+* Notes:       none
+*/
 void alphaBlend(Mat& foreground, Mat& background, Mat& alpha, Mat& outImage)
 {
     //get rid of roi information in header
-    Mat temp = background.clone();
+    Mat bg_temp = background.clone();
+    Mat fg_temp = foreground.clone();
     //create pointers to Mat arrays
     int numberOfPixels = foreground.rows * foreground.cols * foreground.channels();
-    float* fptr = reinterpret_cast<float*>(foreground.data);
-    float* bptr = reinterpret_cast<float*>(temp.data);
+    float* fptr = reinterpret_cast<float*>(fg_temp.data);
+    float* bptr = reinterpret_cast<float*>(bg_temp.data);
     float* aptr = reinterpret_cast<float*>(alpha.data);
     float* outPtr = reinterpret_cast<float*>(outImage.data);
 
@@ -51,56 +80,117 @@ void alphaBlend(Mat& foreground, Mat& background, Mat& alpha, Mat& outImage)
     }
 }
 
+/*
+* Name:        drawRect()
+* Purpose:     draw a rectangle to visualize face detection
+* Arguments:   img, point1, point2, showRect
+* Outputs:     none
+* Modifies:    img
+* Returns:     none
+* Assumptions: none
+* Bugs:        ?
+* Notes:       none
+*/
 void drawRect(Mat& img, Point& point1, Point& point2, bool showRect)
 {
     Mat temp = img.clone();
     rectangle(img, point1, point2, Scalar(255, 255, 0), 4);
 }
 
-void sunglassesProcess(Mat& foreground, Mat& alpha, Point* points)
+/*
+* Name:        sunglassesProcess()
+* Purpose:     scales overlay images based on detected face size
+* Arguments:   sunglasses, alpha_frames, alpha_lens, points
+* Outputs:     none
+* Modifies:    sunglasses, alpha_frames, alpha_lens
+* Returns:     none
+* Assumptions: none
+* Bugs:        ? - possible out of bounds error needs to be found
+* Notes:       none
+*/
+void sunglassesProcess(Mat& sunglasses, Mat& alpha_frames, Mat& alpha_lens, Point* points)
 {
-    foreground = sunglassesRGB.clone();
-    alpha = sunglassesA.clone();
+    sunglasses = sunglassesRGB.clone();
+    alpha_frames = sunglassesA.clone();
+    alpha_lens = lensA.clone();
 
     //calculate sunglasses resize
     int newWidth = points[1].x - points[0].x;
-    int newHeight = (newWidth * foreground.rows) / foreground.cols;
+    int newHeight = (newWidth * sunglasses.rows) / sunglasses.cols;
     //preblur foreground and alpha to help resize look less jaggy
-    GaussianBlur(foreground, foreground, Size(BLUR, BLUR), 0, 0);
-    GaussianBlur(alpha, alpha, Size(BLUR, BLUR), 0, 0);
+    GaussianBlur(sunglasses, sunglasses, Size(BLUR, BLUR), 0, 0);
+    GaussianBlur(alpha_frames, alpha_frames, Size(BLUR, BLUR), 0, 0);
+    GaussianBlur(alpha_lens, alpha_lens, Size(BLUR, BLUR), 0, 0);
     //resize foreground and alpha to bounding rectangle
 
     if ((points[1].x - points[0].x) > 0)
     {
-        resize(foreground, foreground, Size(newWidth, newHeight), INTER_AREA);
-        resize(alpha, alpha, Size(newWidth, newHeight), INTER_CUBIC);
+        resize(sunglasses, sunglasses, Size(newWidth, newHeight), INTER_AREA);
+        resize(alpha_frames, alpha_frames, Size(newWidth, newHeight), INTER_AREA);
+        resize(alpha_lens, alpha_lens, Size(newWidth, newHeight), INTER_AREA);
     }
 }
 
-void blendImages(Mat& foreground, Mat& background, Mat& alpha, Mat& out, Point* points)
+/*
+* Name:        blendImages()
+* Purpose:     composite the final image together
+* Arguments:   foreground, background, reflection, alpha, alpha_lens, points
+* Outputs:     a message to stderr
+* Modifies:    background
+* Returns:     none
+* Assumptions: none
+* Bugs:        ?
+* Notes:       none
+*/
+void blendImages(Mat& foreground, Mat& background, Mat& reflection, Mat& alpha, Mat& alpha_lens, Point* points)
 {
+    Mat temp;
     //calculate sunglasses resize
     int newWidth = points[1].x - points[0].x;
     int newHeight = (newWidth * foreground.rows) / foreground.cols;
+
+    //resize reflection to background
+    resize(reflection, reflection, Size(background.size().width, background.size().height), INTER_CUBIC);
     //convert to 32 bit
     foreground.convertTo(foreground, CV_32FC3);
     background.convertTo(background, CV_32FC3);
+    reflection.convertTo(reflection, CV_32FC3);
     alpha.convertTo(alpha, CV_32FC3, 1.0 / 255);
+    alpha_lens.convertTo(alpha_lens, CV_32FC3, 1.0 / 255);
 
     if ((points[1].x - points[0].x) > 0)
     {
-        out = Mat::zeros(foreground.size(), foreground.type());
+        temp = Mat::zeros(foreground.size(), foreground.type());
         //prepare region of interest
         Rect roi = Rect(points[0].x, points[0].y + 2 * (points[1].y - points[0].y) / 7, newWidth, newHeight);
         Mat background_roi = background(roi);
         //blend the images together
-        alphaBlend(foreground, background_roi, alpha, out);
+        alphaBlend(foreground, background_roi, alpha, temp);
         //recombine bg and bg_roi
-        out.copyTo(background(roi));
-        //imshow("Sunglass Cam", background / 255);
+        temp.copyTo(background(roi));
+
+        //add reflection
+        Mat reflection_roi = reflection(roi);
+        background_roi = background(roi);
+
+        //blend the images together
+        alphaBlend(reflection_roi, background_roi, alpha_lens, temp);
+        //recombine bg and bg_roi
+        temp.copyTo(background(roi));
     }
 }
 
+/*
+* Name:        detectFaceOpenCVDNN()
+* Purpose:     detect faces in a given image and records location
+* Arguments:   net, frameOpenCVDNN, points
+* Outputs:     none
+* Modifies:    points
+* Returns:     none
+* Assumptions: none
+* Bugs:        ?
+* Notes:       this code provided by assignment
+*/
 void detectFaceOpenCVDNN(Net net, Mat& frameOpenCVDNN, Point *points)
 {
     int frameHeight = frameOpenCVDNN.rows;
@@ -140,10 +230,17 @@ int main(int argc, const char** argv)
 #endif
 
     //images
-    Mat foreground = sunglassesRGB.clone();
-    Mat alpha = sunglassesA.clone();
+    sunglassesRGB = imread("sunglasses_foreground.jpg");
+    sunglassesA = imread("sunglasses_alpha.jpg");
+    lensA = imread("sunglasses_lens_alpha.jpg");
+    reflectionRGB = imread("clouds.jpg");
+
+    Mat sunglasses = sunglassesRGB.clone();
+    Mat alpha_frames = sunglassesA.clone();
+    Mat alpha_lens = lensA.clone();
+    Mat reflection = reflectionRGB.clone();
     Mat frame;
-    Mat out;
+
     //camera setup
     VideoCapture cap;
     int deviceID = 0;
@@ -176,8 +273,9 @@ int main(int argc, const char** argv)
         detectFaceOpenCVDNN(net, frame, points);
         //face rectangle for testing
         //cv::rectangle(frame, points[0], points[1], cv::Scalar(0, 255, 0), 2, 4);
-        sunglassesProcess(foreground, alpha, points);
-        blendImages(foreground, frame, alpha, out, points);
+        sunglassesProcess(sunglasses, alpha_frames, alpha_lens, points);
+        blendImages(sunglasses, frame, reflection, alpha_frames, alpha_lens, points);
+
         tt_opencvDNN = ((double)cv::getTickCount() - t) / cv::getTickFrequency();
         fpsOpencvDNN = 1 / tt_opencvDNN;
         
